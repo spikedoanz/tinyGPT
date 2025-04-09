@@ -75,7 +75,12 @@ def chkpt(fn="model.safetensors", step=0) -> str:
     nn.state.safe_save(nn.state.get_state_dict(model), os.path.join(out_dir,fn))
     return f"step {step}: chkpt saved to {os.path.join(out_dir,fn)}"
 #------------------------------------------------------------------------------
-opt = nn.optim.AdamW(nn.state.get_parameters(model), lr=max_lr)
+opt = nn.optim.AdamW(
+        nn.state.get_parameters(model), 
+        lr=max_lr,
+        b1=beta1,
+        b2=beta2,
+        weight_decay=weight_decay)
 
 @TinyJit
 @Tensor.train()

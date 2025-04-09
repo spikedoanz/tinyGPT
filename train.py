@@ -35,12 +35,13 @@ lr_decay_steps  = getenv("LR_DECAY_STEPS", steps)
 weight_decay    = getenv("WEIGHT_DECAY", 1e-1)
 beta1           = getenv("BETA1", 0.9)
 beta2           = getenv("BETA2", 0.99)
+grad_clip       = getenv("GRAD_CLIP", 1.0)
 
 #-- dataloader -----------------------------------------------------------------
-data_dir = os.path.join('data', dataset)
+_data_dir = os.path.join('data', dataset)
 def get_batch(split):
   binary = "train.bin" if split == "train" else "val.bin"
-  data = np.memmap(os.path.join(data_dir, binary), dtype=np.uint16, mode='r')
+  data = np.memmap(os.path.join(_data_dir, binary), dtype=np.uint16, mode='r')
   ix = Tensor.randint(batch_size, high=len(data)-seqlen).tolist()
   x = Tensor([data[i:i+seqlen] for i in ix])
   y = Tensor([data[i+1:i+1+seqlen] for i in ix], dtype=dtypes.int64)
@@ -48,18 +49,18 @@ def get_batch(split):
 
 #-- model setup ----------------------------------------------------------------
 # derive vocab size from dataset
-meta_path = os.path.join(data_dir, 'meta.pkl')
-meta_vocab_size = None
-if os.path.exists(meta_path):
-  with open(meta_path, 'rb') as f:
+_meta_path = os.path.join(_data_dir, 'meta.pkl')
+_meta_vocab_size = None
+if os.path.exists(_meta_path):
+  with open(_meta_path, 'rb') as f:
     meta = pickle.load(f)
-  meta_vocab_size = meta['vocab_size']
-  print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
+  _meta_vocab_size = meta['vocab_size']
+  print(f"found vocab_size = {_meta_vocab_size} (inside {_meta_path})")
 # start with model_args from command line
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, seqlen=seqlen,
                        bias=bias, vocab_size=None, dropout=dropout) 
-if meta_vocab_size is None: print("defaulting to vocab size 50304")
-model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 50304
+if _meta_vocab_size is None: print("defaulting to vocab size 50304")
+model_args["vocab_size"] = _meta_vocab_size if _meta_vocab_size is not None else 50304
 model = GPT(GPTConfig(**model_args))
 
 #-- train utils ---------------------------------------------------------------
@@ -88,12 +89,14 @@ opt = nn.optim.AdamW(
         b2=beta2,
         weight_decay=weight_decay)
 
+
 @TinyJit
 @Tensor.train()
 def train_step() -> Tensor:
   opt.zero_grad()
   x, y = get_batch("train")
   loss = model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1)).backward()
+  for p in opt.params: p.grad.clip(-grad_clip, grad_clip)
   opt.step()
   return loss
 
@@ -108,8 +111,8 @@ def eval_step() -> Tensor:
 
 #-- print out config ----------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
-config = {k: globals()[k] for k in config_keys} # will be useful for logging
-for k in config: print(f"{k} = {config[k]}")
+_config = {k: globals()[k] for k in config_keys} # will be useful for logging
+for k in _config: print(f"{k} = {_config[k]}")
 
 #-- train loop ----------------------------------------------------------------
 eval_loss = float('nan')

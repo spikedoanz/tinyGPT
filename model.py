@@ -51,10 +51,15 @@ class CausalSelfAttention:
 
   def __call__(self, x: Tensor, mask: Optional[Tensor]=None) -> Tensor:
     # TODO: rope (?)
+    H = self.n_head
+    HS = self.n_embd // self.n_head
+    split = lambda x: x.rearrange('b s (h hs) -> b h s hs', h=H, hs=HS)
+    unsplit = lambda x: x.rearrange('b h s hs -> b s (h hs)', h=H, hs=HS)
     xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+    xq, xk, xv = [split(x_) for x_ in (xq,xk,xv)]
     attn = xq.scaled_dot_product_attention(xk, xv, mask)
     attn = attn.dropout(self.dropout)
-    out = self.wo(attn).dropout(self.dropout)
+    out = self.wo(unsplit(attn)).dropout(self.dropout)
     return out
     
 

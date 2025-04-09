@@ -94,9 +94,7 @@ class GPT:
     mask = Tensor.ones((t,t), dtype=dtypes.bool).tril()
 
     for i, block in enumerate(self.blocks):
-      if i == 0:    x = block(x,mask)
-      else:         x = block(x)
-    x = self.ln(x)
+      x = block(x,mask)
     return self.lm_head(x)
 
 if __name__ == "__main__":

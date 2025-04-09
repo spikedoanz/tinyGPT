@@ -1,5 +1,6 @@
 import os
 import re
+import math
 import sys
 import pickle
 from pathlib import Path
@@ -14,10 +15,11 @@ from model import GPT, GPTConfig
 #------------------------------------------------------------------------------
 # meta
 out_dir         = "out"
+chkpt           = getenv("CHECKPOINT", False)
 chkpt_fn        = "model.safetensors"
-chkpt_interval  = 100
+chkpt_interval  = 10
 eval_interval   = chkpt_interval
-eval_iters      = 10
+eval_iters      = 2
 # data
 dataset         = 'shakespeare_char'
 batch_size      = getenv("BS", 128)
@@ -32,7 +34,8 @@ bias            = False
 max_lr          = 1e-3
 min_lr          = 1e-4
 steps           = 1000
-lr_decay_iters  = steps
+warmup_steps    = steps // 10
+lr_decay_steps  = steps
 weight_decay    = 1e-1
 beta1           = 0.9
 beta2           = 0.99
@@ -75,6 +78,14 @@ def chkpt(fn="model.safetensors", step=0) -> str:
     nn.state.safe_save(nn.state.get_state_dict(model), os.path.join(out_dir,fn))
     return f"step {step}: chkpt saved to {os.path.join(out_dir,fn)}"
 #------------------------------------------------------------------------------
+def get_lr(it):
+  if it < warmup_steps: return max_lr * (it+1) / (warmup_steps+1)
+  if it > lr_decay_steps: return min_lr
+  decay_ratio = (it - warmup_steps) / (lr_decay_steps - warmup_steps)
+  assert 0 <= decay_ratio <= 1
+  coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff in [0..1]
+  return min_lr + coeff * (max_lr - min_lr)
+
 opt = nn.optim.AdamW(
         nn.state.get_parameters(model), 
         lr=max_lr,
@@ -107,7 +118,8 @@ print(re.search(
 
 eval_loss = float('nan')
 for i in (t:=trange(steps)):
+  opt.lr = get_lr(i)
   loss = train_step().item()
   if (i+1)%eval_interval == 0: eval_loss = eval_step().item()
-  if (i+1)%chkpt_interval == 0: t.write(chkpt(chkpt_fn,i))
+  if chkpt and (i+1)%chkpt_interval == 0: t.write(chkpt(chkpt_fn,i))
   t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}")

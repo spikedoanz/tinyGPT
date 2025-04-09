@@ -1,33 +1,43 @@
 import os
-import numpy as np
+import re
+import sys
 import pickle
 from pathlib import Path
+
+import numpy as np
 from tinygrad import Tensor, nn, dtypes, TinyJit
 from tinygrad.helpers import trange, getenv
 
 from model import GPT, GPTConfig
 
+#<config>
 #------------------------------------------------------------------------------
 # meta
-out_dir = "out"
-checkpoint_fn = "model.safetensors"
-checkpoint_interval = 100
-eval_interval = checkpoint_interval
-eval_iters = 1
+out_dir         = "out"
+chkpt_fn        = "model.safetensors"
+chkpt_interval  = 100
+eval_interval   = chkpt_interval
+eval_iters      = 10
 # data
-dataset = 'shakespeare_char'
-batch_size = getenv("BS", 128)
-seqlen = 256
+dataset         = 'shakespeare_char'
+batch_size      = getenv("BS", 128)
+seqlen          = 256
 # model
-n_layer = 6
-n_head = 6
-n_embd = 384
-dropout = 0.2
-bias = False
+n_layer         = 6
+n_head          = 6
+n_embd          = 384
+dropout         = 0.2
+bias            = False
 # optimizer
-lr = 1e-4
-steps = 1000
+max_lr          = 1e-3
+min_lr          = 1e-4
+steps           = 1000
+lr_decay_iters  = steps
+weight_decay    = 1e-1
+beta1           = 0.9
+beta2           = 0.99
 #------------------------------------------------------------------------------
+#</config>
 # dataloader
 data_dir = os.path.join('data', dataset)
 def get_batch(split):
@@ -56,16 +66,16 @@ model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 5
 model = GPT(GPTConfig(**model_args))
 
 if getenv("RESUME"):
-  checkpoint_path = os.path.join(out_dir, checkpoint_fn)
-  nn.state.load_state_dict(model, nn.state.safe_load(checkpoint_path))
-  print(f"resuming from checkpoint in {checkpoint_path}")
+  chkpt_path = os.path.join(out_dir, chkpt_fn)
+  nn.state.load_state_dict(model, nn.state.safe_load(chkpt_path))
+  print(f"resuming from chkpt in {chkpt_path}")
 
-def checkpoint(fn="model.safetensors", step=0) -> str:
+def chkpt(fn="model.safetensors", step=0) -> str:
     Path(out_dir).mkdir(exist_ok=True, parents=True)
     nn.state.safe_save(nn.state.get_state_dict(model), os.path.join(out_dir,fn))
-    return f"step {step}: checkpoint saved to {os.path.join(out_dir,fn)}"
+    return f"step {step}: chkpt saved to {os.path.join(out_dir,fn)}"
 #------------------------------------------------------------------------------
-opt = nn.optim.AdamW(nn.state.get_parameters(model), lr=lr)
+opt = nn.optim.AdamW(nn.state.get_parameters(model), lr=max_lr)
 
 @TinyJit
 @Tensor.train()
@@ -85,9 +95,11 @@ def eval_step() -> Tensor:
     losses.append(model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1)))
   return Tensor.stack(*losses).mean()
 #------------------------------------------------------------------------------
+print(re.search(r'<config>(.*?)</config>',open(sys.argv[0], 'r').read(), re.DOTALL).group(1))
+
 eval_loss = float('nan')
 for i in (t:=trange(steps)):
   loss = train_step().item()
   if (i+1)%eval_interval == 0: eval_loss = eval_step().item()
-  if (i+1)%checkpoint_interval == 0: t.write(checkpoint(checkpoint_fn,i))
+  if (i+1)%chkpt_interval == 0: t.write(chkpt(chkpt_fn,i))
   t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}")

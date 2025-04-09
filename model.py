@@ -14,7 +14,7 @@ T : token dimension
 @dataclass
 class GPTConfig:
     seqlen: int = 1024
-    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
+    vocab_size: int = 50304 # 768 * 64
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -22,7 +22,7 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
 
-class MLP:
+class FFN:
   def __init__(self, config: GPTConfig):
     self.wi = nn.Linear(config.n_embd, 4*config.n_embd, bias=config.bias)
     self.act = lambda x: x.gelu()
@@ -65,7 +65,7 @@ class Block:
     self.ln_1 = nn.LayerNorm(config.n_embd)
     self.att = CausalSelfAttention(config)
     self.ln_2 = nn.LayerNorm(config.n_embd)
-    self.mlp = MLP(config)
+    self.mlp = FFN(config)
 
   def __call__(self, x: Tensor, mask:Optional[Tensor]=None) -> Tensor:
     x = x + self.att(self.ln_1(x), mask)

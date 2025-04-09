@@ -17,7 +17,7 @@ eval_iters = 1
 # data
 dataset = 'shakespeare_char'
 batch_size = getenv("BS", 128)
-ctx_len = 256
+seqlen = 256
 # model
 n_layer = 6
 n_head = 6
@@ -33,9 +33,9 @@ data_dir = os.path.join('data', dataset)
 def get_batch(split):
   binary = "train.bin" if split == "train" else "val.bin"
   data = np.memmap(os.path.join(data_dir, binary), dtype=np.uint16, mode='r')
-  ix = Tensor.randint(batch_size, high=len(data)-ctx_len).tolist()
-  x = Tensor([data[i:i+ctx_len] for i in ix])
-  y = Tensor([data[i+1:i+1+ctx_len] for i in ix], dtype=dtypes.int64)
+  ix = Tensor.randint(batch_size, high=len(data)-seqlen).tolist()
+  x = Tensor([data[i:i+seqlen] for i in ix])
+  y = Tensor([data[i+1:i+1+seqlen] for i in ix], dtype=dtypes.int64)
   return x, y
 #------------------------------------------------------------------------------
 # derive vocab size from dataset
@@ -48,7 +48,7 @@ if os.path.exists(meta_path):
   print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # start with model_args from command line
-model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, ctx_len=ctx_len,
+model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, seqlen=seqlen,
                        bias=bias, vocab_size=None, dropout=dropout) 
 
 if meta_vocab_size is None: print("defaulting to vocab size 50304")

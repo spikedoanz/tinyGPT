@@ -4,11 +4,7 @@
 - wandb
 - sharding for ddp
 - microtricks
-    - adam tuning
     - gradient clipping
-    - lr warmup
-    - min lr
-    - lr decay 
 
 # crackpot
 

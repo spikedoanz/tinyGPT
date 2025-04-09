@@ -10,31 +10,31 @@ from tinygrad.helpers import trange, getenv
 from model import GPT, GPTConfig
 
 #-- config ---------------------------------------------------------------------
-out_dir         = "out"
+out_dir         = getenv("OUT_DIR", "out")
 chkpt           = getenv("CHECKPOINT", False)
-chkpt_fn        = "model.safetensors"
-chkpt_interval  = 10
-eval_interval   = chkpt_interval
-eval_iters      = 2
+chkpt_fn        = getenv("CHECKPOINT_PATH", "model.safetensors")
+chkpt_interval  = getenv("CHECKPOINT_INTERVAL", 10)
+eval_interval   = getenv("EVAL_INTERVAL", chkpt_interval)
+eval_iters      = getenv("EVAL_ITERS", 2)
 # data
-dataset         = 'shakespeare_char'
+dataset         = getenv("DATASET", "shakespeare_char")
 batch_size      = getenv("BS", 128)
-seqlen          = 256
+seqlen          = getenv("SEQLEN", 256)
 # model
 n_layer         = getenv("N_LAYER", 6)
 n_head          = getenv("N_HEAD" , 6)
 n_embd          = getenv("N_EMBD" , 384)
-dropout         = 0.2
-bias            = False
+dropout         = getenv("DROPOUT", 0.2)
+bias            = getenv("BIAS", False)
 # optimizer
-max_lr          = 1e-3
-min_lr          = 1e-4
-steps           = 1000
-warmup_steps    = steps // 10
-lr_decay_steps  = steps
-weight_decay    = 1e-1
-beta1           = 0.9
-beta2           = 0.99
+max_lr          = getenv("MAX_LR", 1e-3)
+min_lr          = getenv("MIN_LR", 1e-4)
+steps           = getenv("STEPS", 1000)
+warmup_steps    = getenv("WARMUP_STEPS", steps // 10)
+lr_decay_steps  = getenv("LR_DECAY_STEPS", steps)
+weight_decay    = getenv("WEIGHT_DECAY", 1e-1)
+beta1           = getenv("BETA1", 0.9)
+beta2           = getenv("BETA2", 0.99)
 
 #-- dataloader -----------------------------------------------------------------
 data_dir = os.path.join('data', dataset)

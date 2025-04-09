@@ -1,7 +1,5 @@
 import os
-import re
 import math
-import sys
 import pickle
 from pathlib import Path
 
@@ -11,9 +9,7 @@ from tinygrad.helpers import trange, getenv
 
 from model import GPT, GPTConfig
 
-#<config>
-#------------------------------------------------------------------------------
-# meta
+#-- config ---------------------------------------------------------------------
 out_dir         = "out"
 chkpt           = getenv("CHECKPOINT", False)
 chkpt_fn        = "model.safetensors"
@@ -25,9 +21,9 @@ dataset         = 'shakespeare_char'
 batch_size      = getenv("BS", 128)
 seqlen          = 256
 # model
-n_layer         = 6
-n_head          = 6
-n_embd          = 384
+n_layer         = getenv("N_LAYER", 6)
+n_head          = getenv("N_HEAD" , 6)
+n_embd          = getenv("N_EMBD" , 384)
 dropout         = 0.2
 bias            = False
 # optimizer
@@ -39,9 +35,8 @@ lr_decay_steps  = steps
 weight_decay    = 1e-1
 beta1           = 0.9
 beta2           = 0.99
-#------------------------------------------------------------------------------
-#</config>
-# dataloader
+
+#-- dataloader -----------------------------------------------------------------
 data_dir = os.path.join('data', dataset)
 def get_batch(split):
   binary = "train.bin" if split == "train" else "val.bin"
@@ -50,7 +45,8 @@ def get_batch(split):
   x = Tensor([data[i:i+seqlen] for i in ix])
   y = Tensor([data[i+1:i+1+seqlen] for i in ix], dtype=dtypes.int64)
   return x, y
-#------------------------------------------------------------------------------
+
+#-- model setup ----------------------------------------------------------------
 # derive vocab size from dataset
 meta_path = os.path.join(data_dir, 'meta.pkl')
 meta_vocab_size = None
@@ -59,15 +55,14 @@ if os.path.exists(meta_path):
     meta = pickle.load(f)
   meta_vocab_size = meta['vocab_size']
   print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
-
 # start with model_args from command line
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, seqlen=seqlen,
                        bias=bias, vocab_size=None, dropout=dropout) 
-
 if meta_vocab_size is None: print("defaulting to vocab size 50304")
 model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 50304
 model = GPT(GPTConfig(**model_args))
 
+#-- train utils ---------------------------------------------------------------
 if getenv("RESUME"):
   chkpt_path = os.path.join(out_dir, chkpt_fn)
   nn.state.load_state_dict(model, nn.state.safe_load(chkpt_path))
@@ -76,8 +71,8 @@ if getenv("RESUME"):
 def chkpt(fn="model.safetensors", step=0) -> str:
     Path(out_dir).mkdir(exist_ok=True, parents=True)
     nn.state.safe_save(nn.state.get_state_dict(model), os.path.join(out_dir,fn))
-    return f"step {step}: chkpt saved to {os.path.join(out_dir,fn)}"
-#------------------------------------------------------------------------------
+    return f"step {step}:\t chkpt saved to {os.path.join(out_dir,fn)}"
+
 def get_lr(it):
   if it < warmup_steps: return max_lr * (it+1) / (warmup_steps+1)
   if it > lr_decay_steps: return min_lr
@@ -110,12 +105,13 @@ def eval_step() -> Tensor:
     x, y = get_batch("eval")
     losses.append(model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1)))
   return Tensor.stack(*losses).mean()
-#------------------------------------------------------------------------------
-# print out config
-print(re.search(
-    r'<config>(.*?)</config>',open(sys.argv[0], 'r').read(),
-    re.DOTALL).group(1))
 
+#-- print out config ----------------------------------------------------------
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+config = {k: globals()[k] for k in config_keys} # will be useful for logging
+for k in config: print(f"{k} = {config[k]}")
+
+#-- train loop ----------------------------------------------------------------
 eval_loss = float('nan')
 for i in (t:=trange(steps)):
   opt.lr = get_lr(i)

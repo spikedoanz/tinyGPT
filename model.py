@@ -13,7 +13,7 @@ T : token dimension
 
 @dataclass
 class GPTConfig:
-    block_size: int = 1024
+    ctx_len: int = 1024
     vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
     n_layer: int = 12
     n_head: int = 12
@@ -73,10 +73,10 @@ class Block:
 class GPT:
   def __init__(self, config: GPTConfig):
     assert config.vocab_size is not None
-    assert config.block_size is not None
+    assert config.ctx_len is not None
     self.config = config
     self.wte = nn.Embedding(config.vocab_size, config.n_embd)
-    self.wpe = nn.Embedding(config.block_size, config.n_embd)
+    self.wpe = nn.Embedding(config.ctx_len, config.n_embd)
     self.drop = lambda x: x.dropout(config.dropout)
     self.blocks = [Block(config) for _ in range(config.n_layer)]
     self.ln = nn.LayerNorm(config.n_embd)
@@ -84,7 +84,7 @@ class GPT:
 
   def __call__(self, ts: Tensor) -> Tensor:
     t = ts.shape[-1]
-    assert t <= self.config.block_size, "token dim cannot be more than block size"
+    assert t <= self.config.ctx_len, "token dim cannot be more than block size"
     pos = Tensor.arange(0, t, dtype=dtypes.long)
     tok_emb = self.wte(ts)  # b t   -> b t n_embd
     pos_emb = self.wpe(pos) # t     -> t n_embd

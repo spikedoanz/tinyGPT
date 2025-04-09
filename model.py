@@ -24,12 +24,12 @@ class GPTConfig:
 
 class MLP:
   def __init__(self, config: GPTConfig):
-    self.wi     = nn.Linear(config.n_embd, 4*config.n_embd, bias=config.bias)
-    self.act    = lambda x: x.gelu()
-    self.wo     = nn.Linear(4*config.n_embd, config.n_embd, bias=config.bias)
+    self.wi = nn.Linear(config.n_embd, 4*config.n_embd, bias=config.bias)
+    self.act = lambda x: x.gelu()
+    self.wo = nn.Linear(4*config.n_embd, config.n_embd, bias=config.bias)
     self.dropout = lambda x: x.dropout(config.dropout) 
 
-  def __call__(self, x: Tensor):
+  def __call__(self, x: Tensor) -> Tensor:
     x = self.wi(x)
     x = self.act(x)
     x = self.wo(x)
@@ -49,13 +49,12 @@ class CausalSelfAttention:
     self.n_embd = config.n_embd
     self.dropout = config.dropout
 
-  def __call__(self, x: Tensor, mask: Optional[Tensor]=None):
+  def __call__(self, x: Tensor, mask: Optional[Tensor]=None) -> Tensor:
     # TODO: rope (?)
     xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
     attn = xq.scaled_dot_product_attention(xk, xv, mask)
     attn = attn.dropout(self.dropout)
     out = self.wo(attn).dropout(self.dropout)
-    print(out.shape)
     return out
     
 
@@ -66,7 +65,7 @@ class Block:
     self.ln_2 = nn.LayerNorm(config.n_embd)
     self.mlp = MLP(config)
 
-  def __call__(self, x: Tensor):
+  def __call__(self, x: Tensor) -> Tensor:
     x = x + self.attn(self.ln_1(x))
     x = x + self.mlp(self.ln_2(x))
     return x
@@ -83,7 +82,7 @@ class GPT:
     self.ln = nn.LayerNorm(config.n_embd)
     self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-  def __call__(self, ts):
+  def __call__(self, ts: Tensor) -> Tensor:
     t = ts.shape[-1]
     assert t <= self.config.block_size, "token dim cannot be more than block size"
     pos = Tensor.arange(0, t, dtype=dtypes.long)
@@ -97,5 +96,12 @@ class GPT:
 
 if __name__ == "__main__":
   model = GPT(GPTConfig())
-  x = Tensor.randint((1,1024))
-  model(x)
+  B = 1
+  S = 1024
+  x = Tensor.randint((B,S))
+  print(x.shape)
+  out = model(x)
+  print(out.shape) # B S T
+  target = Tensor.randint((B,S), high=GPTConfig().vocab_size)
+  loss = out.reshape(-1, GPTConfig().vocab_size).cross_entropy(target.reshape(-1))
+  print(loss.shape, loss.item()) # should be ln(T)

@@ -1,20 +1,22 @@
 import os
 import numpy as np
 import pickle
+from pathlib import Path
 from tinygrad import Tensor, nn, dtypes, TinyJit
-from tinygrad.helpers import trange
+from tinygrad.helpers import trange, getenv
 
 from model import GPT, GPTConfig
 
 #------------------------------------------------------------------------------
 # meta
 out_dir = "out"
-eval_interval = 100
-eval_iters = 10
-init_from = ["scratch", "resume"][0]
+checkpoint_fn = "model.safetensors"
+checkpoint_interval = 100
+eval_interval = checkpoint_interval
+eval_iters = 1
 # data
 dataset = 'shakespeare_char'
-batch_size = 64
+batch_size = getenv("BS", 64)
 ctx_len = 256
 # model
 n_layer = 6
@@ -26,13 +28,6 @@ bias = False
 lr = 1e-4
 steps = 1000
 #------------------------------------------------------------------------------
-# override configs from commandline or file
-config_keys = [k for k,v in globals().items() 
-               if not k.startswith("_") 
-               and isinstance(v, (int, float, bool, str))]
-exec(open("configurator.py").read())
-config = {k: globals()[k] for k in config_keys}
-#------------------------------------------------------------------------------
 # dataloader
 data_dir = os.path.join('data', dataset)
 def get_batch(split):
@@ -42,7 +37,7 @@ def get_batch(split):
   x = Tensor([data[i:i+ctx_len] for i in ix])
   y = Tensor([data[i+1:i+1+ctx_len] for i in ix], dtype=dtypes.int64)
   return x, y
-
+#------------------------------------------------------------------------------
 # derive vocab size from dataset
 meta_path = os.path.join(data_dir, 'meta.pkl')
 meta_vocab_size = None
@@ -55,17 +50,21 @@ if os.path.exists(meta_path):
 # start with model_args from command line
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, ctx_len=ctx_len,
                        bias=bias, vocab_size=None, dropout=dropout) 
-if init_from == "scratch":
-  print("initializing from scratch")
-  if meta_vocab_size is None:
-    print("defaulting to vocab size 50304")
-  model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 50304
-  model = GPT(GPTConfig(**model_args))
-else:
-  print(f"resuming from checkpoint in {out_dir}")
-  raise NotImplementedError
 
+if meta_vocab_size is None: print("defaulting to vocab size 50304")
+model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 50304
+model = GPT(GPTConfig(**model_args))
 
+if getenv("RESUME"):
+  checkpoint_path = os.path.join(out_dir, checkpoint_fn)
+  nn.state.load_state_dict(model, nn.state.safe_load(checkpoint_path))
+  print(f"resuming from checkpoint in {checkpoint_path}")
+
+def checkpoint(fn="model.safetensors", step=0) -> str:
+    Path(out_dir).mkdir(exist_ok=True, parents=True)
+    nn.state.safe_save(nn.state.get_state_dict(model), os.path.join(out_dir,fn))
+    return f"step {step}: checkpoint saved to {os.path.join(out_dir,fn)}"
+#------------------------------------------------------------------------------
 opt = nn.optim.AdamW(nn.state.get_parameters(model), lr=lr)
 
 @TinyJit
@@ -85,9 +84,10 @@ def eval_step() -> Tensor:
     x, y = get_batch("eval")
     losses.append(model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1)))
   return Tensor.stack(*losses).mean()
-
+#------------------------------------------------------------------------------
 eval_loss = float('nan')
 for i in (t:=trange(steps)):
   loss = train_step().item()
-  if i%eval_interval == 0: eval_loss = eval_step().item()
+  if (i+1)%eval_interval == 0: eval_loss = eval_step().item()
+  if (i+1)%checkpoint_interval == 0: t.write(checkpoint(checkpoint_fn))
   t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}")

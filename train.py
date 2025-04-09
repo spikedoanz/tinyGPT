@@ -16,7 +16,7 @@ eval_interval = checkpoint_interval
 eval_iters = 1
 # data
 dataset = 'shakespeare_char'
-batch_size = getenv("BS", 64)
+batch_size = getenv("BS", 128)
 ctx_len = 256
 # model
 n_layer = 6
@@ -89,5 +89,5 @@ eval_loss = float('nan')
 for i in (t:=trange(steps)):
   loss = train_step().item()
   if (i+1)%eval_interval == 0: eval_loss = eval_step().item()
-  if (i+1)%checkpoint_interval == 0: t.write(checkpoint(checkpoint_fn))
+  if (i+1)%checkpoint_interval == 0: t.write(checkpoint(checkpoint_fn,i))
   t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}")

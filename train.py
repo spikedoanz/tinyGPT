@@ -95,7 +95,10 @@ def eval_step() -> Tensor:
     losses.append(model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1)))
   return Tensor.stack(*losses).mean()
 #------------------------------------------------------------------------------
-print(re.search(r'<config>(.*?)</config>',open(sys.argv[0], 'r').read(), re.DOTALL).group(1))
+# print out config
+print(re.search(
+    r'<config>(.*?)</config>',open(sys.argv[0], 'r').read(),
+    re.DOTALL).group(1))
 
 eval_loss = float('nan')
 for i in (t:=trange(steps)):

@@ -51,24 +51,24 @@ class CausalSelfAttention:
 
   def __call__(self, x: Tensor, mask: Optional[Tensor]=None) -> Tensor:
     H, HS = self.n_head, self.n_embd // self.n_head
-    split   = lambda x: x.rearrange('b s (h hs) -> b h s hs', h=H, hs=HS)
-    unsplit = lambda x: x.rearrange('b h s hs -> b s (h hs)', h=H, hs=HS)
-    xq, xk, xv = [split(x_) for x_ in (self.wq(x), self.wk(x), self.wv(x))]
-    attn = xq.scaled_dot_product_attention(xk, xv, mask)
-    attn = attn.dropout(self.dropout)
-    out = self.wo(unsplit(attn)).dropout(self.dropout)
+    shard = lambda x: x.rearrange('b s (h hs) -> b h s hs', h=H, hs=HS)
+    drahs = lambda x: x.rearrange('b h s hs -> b s (h hs)', h=H, hs=HS)
+    xq, xk, xv = [shard(x_) for x_ in (self.wq(x), self.wk(x), self.wv(x))]
+    att = xq.scaled_dot_product_attention(xk, xv, mask)
+    att = att.dropout(self.dropout)
+    out = self.wo(drahs(att)).dropout(self.dropout)
     return out
     
 
 class Block:
   def __init__(self, config: GPTConfig):
     self.ln_1 = nn.LayerNorm(config.n_embd)
-    self.attn = CausalSelfAttention(config)
+    self.att = CausalSelfAttention(config)
     self.ln_2 = nn.LayerNorm(config.n_embd)
     self.mlp = MLP(config)
 
   def __call__(self, x: Tensor, mask:Optional[Tensor]=None) -> Tensor:
-    x = x + self.attn(self.ln_1(x), mask)
+    x = x + self.att(self.ln_1(x), mask)
     x = x + self.mlp(self.ln_2(x))
     return x
 

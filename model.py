@@ -65,8 +65,8 @@ class Block:
     self.ln_2 = nn.LayerNorm(config.n_embd)
     self.mlp = MLP(config)
 
-  def __call__(self, x: Tensor) -> Tensor:
-    x = x + self.attn(self.ln_1(x))
+  def __call__(self, x: Tensor, mask:Optional[Tensor]=None) -> Tensor:
+    x = x + self.attn(self.ln_1(x), mask)
     x = x + self.mlp(self.ln_2(x))
     return x
 
@@ -89,8 +89,11 @@ class GPT:
     tok_emb = self.wte(ts)  # b t   -> b t n_embd
     pos_emb = self.wpe(pos) # t     -> t n_embd
     x = self.drop(tok_emb + pos_emb)
-    for block in self.blocks:
-      x = block(x)
+    mask = Tensor.ones((t,t), dtype=dtypes.bool).tril()
+
+    for i, block in enumerate(self.blocks):
+      if i == 0:    x = block(x,mask)
+      else:         x = block(x)
     x = self.ln(x)
     return self.lm_head(x)
 

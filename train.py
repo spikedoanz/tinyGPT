@@ -2,7 +2,6 @@ import os
 import math
 import pickle
 import datetime
-from pathlib import Path
 
 import wandb
 
@@ -77,7 +76,7 @@ model = GPT(GPTConfig(**model_args))
 
 #-- train utils ---------------------------------------------------------------
 
-def get_lr(it):
+def lr_scheduler(it):
   if it < warmup_steps: return max_lr * (it+1) / (warmup_steps+1)
   if it > lr_decay_steps: return min_lr
   decay_ratio = (it - warmup_steps) / (lr_decay_steps - warmup_steps)
@@ -143,7 +142,7 @@ if getenv("RESUME"):
 if use_wandb: run = wandb.init(name=name, project=project_name,config=_config)
 best_iter, best_eval_loss, eval_loss = 0, 1e9, float('nan')
 for i in (t:=trange(steps)):
-  lr = get_lr(i)
+  lr = lr_scheduler(i)
   loss = train_step().item()
   if (i+1)%eval_interval == 0: eval_loss = eval_step().item()
   if (chkpt > 0) and (i+1)%chkpt_interval==0: 
@@ -151,7 +150,7 @@ for i in (t:=trange(steps)):
     best_iter = i
   if use_wandb: wandb.log(
     {"train_loss": loss, "eval_loss": eval_loss,
-     "learning_rate": get_lr(i)}
+     "learning_rate": lr_scheduler(i)}
     # TODO: gradient norm, mfu
     )
   t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}, last_checkpoint: {best_iter}")

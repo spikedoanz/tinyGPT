@@ -8,6 +8,7 @@ import wandb
 
 import numpy as np 
 from tinygrad import Tensor, nn, dtypes, TinyJit
+from tinygrad.nn import state
 from tinygrad.helpers import trange, getenv
 
 from model import GPT, GPTConfig
@@ -19,7 +20,7 @@ project_name    = getenv("PROJECT_NAME", "tinygpt")
 name            = getenv("NAME", datetime.datetime.now().strftime("%Y-%m-%d:%H-%M"))
 # meta
 out_dir         = getenv("OUT_DIR", "out")
-chkpt           = getenv("CHECKPOINT", False)
+chkpt           = getenv("CHECKPOINT", 0)
 chkpt_fn        = getenv("CHECKPOINT_PATH", "model.safetensors")
 chkpt_interval  = getenv("CHECKPOINT_INTERVAL", 10)
 eval_interval   = getenv("EVAL_INTERVAL", chkpt_interval)
@@ -35,7 +36,7 @@ n_embd          = getenv("N_EMBD" , 384)
 dropout         = getenv("DROPOUT", 0.2)
 bias            = getenv("BIAS", False)
 # optimizer
-max_lr          = getenv("MAX_LR",  1-3) # QUESTION: why do we do this?
+max_lr          = getenv("MAX_LR",  1e-3) # QUESTION: why do we do this?
 min_lr          = getenv("MIN_LR",  1e-6)
 start_lr        = getenv("LR",      1e-4) 
 steps           = getenv("STEPS", 1000)
@@ -45,6 +46,8 @@ weight_decay    = getenv("WEIGHT_DECAY", 1e-1)
 beta1           = getenv("BETA1", 0.9)
 beta2           = getenv("BETA2", 0.99)
 grad_clip       = getenv("GRAD_CLIP", 10.0) # QUESTION: can't this be solved with math
+
+_chkpt_path     = os.path.join(out_dir, chkpt_fn)
 
 #-- dataloader -----------------------------------------------------------------
 _data_dir = os.path.join('data', dataset)
@@ -73,15 +76,6 @@ model_args["vocab_size"] = _meta_vocab_size if _meta_vocab_size is not None else
 model = GPT(GPTConfig(**model_args))
 
 #-- train utils ---------------------------------------------------------------
-if getenv("RESUME"):
-  chkpt_path = os.path.join(out_dir, chkpt_fn)
-  nn.state.load_state_dict(model, nn.state.safe_load(chkpt_path))
-  print(f"resuming from chkpt in {chkpt_path}")
-
-def chkpt(fn="model.safetensors", step=0) -> str:
-    Path(out_dir).mkdir(exist_ok=True, parents=True)
-    nn.state.safe_save(nn.state.get_state_dict(model), os.path.join(out_dir,fn))
-    return f"step {step}:\t chkpt saved to {os.path.join(out_dir,fn)}"
 
 def get_lr(it):
   if it < warmup_steps: return max_lr * (it+1) / (warmup_steps+1)
@@ -92,20 +86,36 @@ def get_lr(it):
   return min_lr + coeff * (max_lr - min_lr)
 
 opt = nn.optim.AdamW(
-        nn.state.get_parameters(model), 
+        state.get_parameters(model), 
         lr=start_lr,
         b1=beta1,
         b2=beta2,
         weight_decay=weight_decay)
 
+def invert_dict(d): return {v: k for k, v in reversed(d.items())}
+def dedup_dict(d): return invert_dict(invert_dict(d))
+def get_train_state(model, optimizer):
+  train_state = {"model": model, "optimizer": optimizer}
+  return dedup_dict(state.get_state_dict(train_state))
+
+def load_train_state(model, optimizer, state_dict):
+  train_state = {"model": model, "optimizer": optimizer}
+  big_dict = state.get_state_dict(train_state)
+  dupe_names = {}
+  for k, v in big_dict.items():
+    if v not in dupe_names:
+      dupe_names[v] = k
+      assert k in state_dict
+    state_dict[k] = state_dict[dupe_names[v]]
 
 @TinyJit
 @Tensor.train()
 def train_step() -> Tensor:
   opt.zero_grad()
   x, y = get_batch("train")
-  loss = model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1)).backward()
-  for p in opt.params: p.grad.clip(-grad_clip, grad_clip)
+  loss = model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1))
+  loss.backward()
+  #for p in opt.params: p.grad.clip(-grad_clip, grad_clip)
   opt.step()
   return loss
 
@@ -118,28 +128,31 @@ def eval_step() -> Tensor:
     losses.append(model(x).rearrange("b s t -> (b s) t").cross_entropy(y.reshape(-1)))
   return Tensor.stack(*losses).mean()
 
+
 #-- print out config ----------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 _config = {k: globals()[k] for k in config_keys} # will be useful for logging
 for k in _config: print(f"{k} = {_config[k]}")
 
-
 #-- train loop ----------------------------------------------------------------
-if use_wandb: run = wandb.init(name=name, project=project_name,config=_config)
-best_eval_loss, eval_loss = 1e9, float('nan')
+if getenv("RESUME"):
+  train_state = state.safe_load(_chkpt_path)
+  train_state = load_train_state(model, opt, train_state)
+  print(f"loaded training state from {_chkpt_path}")
 
+if use_wandb: run = wandb.init(name=name, project=project_name,config=_config)
+best_iter, best_eval_loss, eval_loss = 0, 1e9, float('nan')
 for i in (t:=trange(steps)):
   lr = get_lr(i)
   loss = train_step().item()
   if (i+1)%eval_interval == 0: eval_loss = eval_step().item()
-  if (chkpt and (i+1)%chkpt_interval == 0) and eval_loss < best_eval_loss:
-    best_eval_loss = eval_loss
-    t.write(chkpt(chkpt_fn,i) + f" with validation loss {eval_loss}")
-  t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}")
-
+  if (chkpt > 0) and (i+1)%chkpt_interval==0: 
+    state.safe_save(get_train_state(model, opt), _chkpt_path)
+    best_iter = i
   if use_wandb: wandb.log(
     {"train_loss": loss, "eval_loss": eval_loss,
      "learning_rate": get_lr(i)}
     # TODO: gradient norm, mfu
     )
+  t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}, last_checkpoint: {best_iter}")
 if use_wandb: wandb.finish()

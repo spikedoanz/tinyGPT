@@ -1,6 +1,6 @@
 # tinyGPT
 
-> nanoGPT, but [tinier](https://github.com/tinygrad/tinygrad)
+> [nanoGPT](https://github.com/karpathy/nanoGPT), but even [tinier](https://github.com/tinygrad/tinygrad)
 
 ---
 

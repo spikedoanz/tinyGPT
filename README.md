@@ -2,6 +2,8 @@
 
 > [nanoGPT](https://github.com/karpathy/nanoGPT), but even [tinier](https://github.com/tinygrad/tinygrad)
 
+![tinyGPT](tinyGPT.png)
+
 ---
 
 # quick setup

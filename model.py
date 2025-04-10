@@ -91,10 +91,10 @@ class GPT:
     tok_emb = self.wte(ts)  # b t   -> b t n_embd
     pos_emb = self.wpe(pos) # t     -> t n_embd
     x = self.drop(tok_emb + pos_emb)
-    mask = Tensor.ones((t,t), dtype=dtypes.bool).tril()
+    mask = (1 - Tensor.ones((t,t)).tril()) * -1e9
 
     for i, block in enumerate(self.blocks):
-      x = block(x,mask)
+      x = block(x, mask)
     return self.lm_head(x)
 
 if __name__ == "__main__":

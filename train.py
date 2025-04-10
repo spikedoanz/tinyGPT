@@ -1,15 +1,23 @@
 import os
 import math
 import pickle
+import datetime
 from pathlib import Path
 
-import numpy as np
+import wandb
+
+import numpy as np 
 from tinygrad import Tensor, nn, dtypes, TinyJit
 from tinygrad.helpers import trange, getenv
 
 from model import GPT, GPTConfig
 
 #-- config ---------------------------------------------------------------------
+# wandb
+use_wandb       = getenv("WANDB", 0)
+project_name    = getenv("PROJECT_NAME", "tinygpt")
+name            = getenv("NAME", datetime.datetime.now().strftime("%Y-%m-%d:%H-%M"))
+# meta
 out_dir         = getenv("OUT_DIR", "out")
 chkpt           = getenv("CHECKPOINT", False)
 chkpt_fn        = getenv("CHECKPOINT_PATH", "model.safetensors")
@@ -18,7 +26,7 @@ eval_interval   = getenv("EVAL_INTERVAL", chkpt_interval)
 eval_iters      = getenv("EVAL_ITERS", 2)
 # data
 dataset         = getenv("DATASET", "shakespeare_char")
-batch_size      = getenv("BS", 128)
+batch_size      = getenv("BS", 64)
 seqlen          = getenv("SEQLEN", 256)
 # model
 n_layer         = getenv("N_LAYER", 6)
@@ -27,15 +35,16 @@ n_embd          = getenv("N_EMBD" , 384)
 dropout         = getenv("DROPOUT", 0.2)
 bias            = getenv("BIAS", False)
 # optimizer
-max_lr          = getenv("MAX_LR", 1e-3)
-min_lr          = getenv("MIN_LR", 1e-4)
+max_lr          = getenv("MAX_LR",  1-3) # QUESTION: why do we do this?
+min_lr          = getenv("MIN_LR",  1e-6)
+start_lr        = getenv("LR",      1e-4) 
 steps           = getenv("STEPS", 1000)
 warmup_steps    = getenv("WARMUP_STEPS", steps // 10)
 lr_decay_steps  = getenv("LR_DECAY_STEPS", steps)
 weight_decay    = getenv("WEIGHT_DECAY", 1e-1)
 beta1           = getenv("BETA1", 0.9)
 beta2           = getenv("BETA2", 0.99)
-grad_clip       = getenv("GRAD_CLIP", 1.0)
+grad_clip       = getenv("GRAD_CLIP", 10.0) # QUESTION: can't this be solved with math
 
 #-- dataloader -----------------------------------------------------------------
 _data_dir = os.path.join('data', dataset)
@@ -84,7 +93,7 @@ def get_lr(it):
 
 opt = nn.optim.AdamW(
         nn.state.get_parameters(model), 
-        lr=max_lr,
+        lr=start_lr,
         b1=beta1,
         b2=beta2,
         weight_decay=weight_decay)
@@ -114,11 +123,23 @@ config_keys = [k for k,v in globals().items() if not k.startswith('_') and isins
 _config = {k: globals()[k] for k in config_keys} # will be useful for logging
 for k in _config: print(f"{k} = {_config[k]}")
 
+
 #-- train loop ----------------------------------------------------------------
-eval_loss = float('nan')
+if use_wandb: run = wandb.init(name=name, project=project_name,config=_config)
+best_eval_loss, eval_loss = 1e9, float('nan')
+
 for i in (t:=trange(steps)):
-  opt.lr = get_lr(i)
+  lr = get_lr(i)
   loss = train_step().item()
   if (i+1)%eval_interval == 0: eval_loss = eval_step().item()
-  if chkpt and (i+1)%chkpt_interval == 0: t.write(chkpt(chkpt_fn,i))
+  if (chkpt and (i+1)%chkpt_interval == 0) and eval_loss < best_eval_loss:
+    best_eval_loss = eval_loss
+    t.write(chkpt(chkpt_fn,i) + f" with validation loss {eval_loss}")
   t.set_description(f"loss: {loss:4.4f}, eval_loss: {eval_loss:4.4f}")
+
+  if use_wandb: wandb.log(
+    {"train_loss": loss, "eval_loss": eval_loss,
+     "learning_rate": get_lr(i)}
+    # TODO: gradient norm, mfu
+    )
+if use_wandb: wandb.finish()

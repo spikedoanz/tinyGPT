@@ -6,11 +6,12 @@ import datetime
 import wandb
 
 import numpy as np 
-from tinygrad import Tensor, nn, dtypes, TinyJit
+from tinygrad import Tensor, nn, dtypes, TinyJit, Device
 from tinygrad.nn import state
 from tinygrad.helpers import trange, getenv
 
 from model import GPT, GPTConfig
+
 
 #-- config ---------------------------------------------------------------------
 # wandb
@@ -48,6 +49,11 @@ grad_clip       = getenv("GRAD_CLIP", 10.0) # QUESTION: can't this be solved wit
 
 _chkpt_path     = os.path.join(out_dir, chkpt_fn)
 
+
+#-- ddp ------------------------------------------------------------------------
+DDP             = getenv("DDP", 0)
+GPUS            = tuple(f'{Device.DEFAULT}:{i}' for i in range(getenv("GPUS", 2)))
+
 #-- dataloader -----------------------------------------------------------------
 _data_dir = os.path.join('data', dataset)
 def get_batch(split):
@@ -56,6 +62,8 @@ def get_batch(split):
   ix = Tensor.randint(batch_size, high=len(data)-seqlen).tolist()
   x = Tensor([data[i:i+seqlen] for i in ix])
   y = Tensor([data[i+1:i+1+seqlen] for i in ix], dtype=dtypes.int64)
+  # DDP: shard data along batch
+  if DDP > 0: x, y = [t.shard_(GPUS, axis=0) for t in (x,y)] 
   return x, y
 
 #-- model setup ----------------------------------------------------------------
@@ -73,6 +81,8 @@ model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, seqlen=seqlen,
 if _meta_vocab_size is None: print("defaulting to vocab size 50304")
 model_args["vocab_size"] = _meta_vocab_size if _meta_vocab_size is not None else 50304
 model = GPT(GPTConfig(**model_args))
+# clone models to devices
+if DDP > 0: {k: x.to_(GPUS) for k, x in nn.state.get_state_dict(model).items()}
 
 #-- train utils ---------------------------------------------------------------
 

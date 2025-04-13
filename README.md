@@ -8,7 +8,6 @@
 
 # quick setup
 
-
 Installation
 ```
 git clone https://github.com/spikedoanz/tinyGPT
@@ -27,23 +26,32 @@ Run
 python train.py
 ```
 
+# config
+
+everthing is configured via environment variables. want DDP?
+
+```
+DDP=1 python train.py
+```
+
+different batch size?
+
+```
+BS=32 python train.py
+```
+
+and every other variable, just check out train.py!
+
 ---
 
-# TODO
+# todo
 
-- correctness, then split to a gpt branch
-- wandb
-- sharding for ddp
-- microtricks
-    - gradient clipping
-
----
+- fineweb
 
 # crackpot
 
-- moe for mha
 - moe for ffn
 - NoPE
-- mla
 - muon
 - norm analysis
+- moe for mha

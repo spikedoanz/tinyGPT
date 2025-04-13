@@ -1,6 +1,5 @@
 import os
 import math
-import pickle
 import datetime
 
 import wandb
@@ -12,6 +11,8 @@ from tinygrad.helpers import trange, getenv
 
 from model import GPT, GPTConfig
 
+
+DEVICE = Device.DEFAULT
 
 #-- config ---------------------------------------------------------------------
 # wandb
@@ -27,7 +28,7 @@ eval_interval   = getenv("EVAL_INTERVAL", chkpt_interval)
 eval_iters      = getenv("EVAL_ITERS", 2)
 # data
 dataset         = getenv("DATASET", "shakespeare_char")
-batch_size      = getenv("BS", 64)
+batch_size      = getenv("BS", 256)
 seqlen          = getenv("SEQLEN", 256)
 # model
 n_layer         = getenv("N_LAYER", 6)
@@ -55,33 +56,33 @@ DDP             = getenv("DDP", 0)
 GPUS            = tuple(f'{Device.DEFAULT}:{i}' for i in range(getenv("GPUS", 2)))
 
 #-- dataloader -----------------------------------------------------------------
-_data_dir = os.path.join('data', dataset)
+_data_fn = os.path.join("data", dataset, "data.safetensors")
+_data = state.safe_load(_data_fn)
+_train, _val = _data["train"], _data["val"]
+
 def get_batch(split):
-  binary = "train.bin" if split == "train" else "val.bin"
-  data = np.memmap(os.path.join(_data_dir, binary), dtype=np.uint16, mode='r')
-  ix = Tensor.randint(batch_size, high=len(data)-seqlen).tolist()
-  x = Tensor([data[i:i+seqlen] for i in ix])
-  y = Tensor([data[i+1:i+1+seqlen] for i in ix], dtype=dtypes.int64)
+  assert split in ["train", "val"]
+  data = _data[split].to(DEVICE)
+  samples = Tensor.randint(batch_size, high=data.shape[0]).tolist()
+  x = Tensor.stack(*[data[i : i+seqlen]     for i in samples])
+  y = Tensor.stack(*[data[i+1 : i+1+seqlen] for i in samples])
   # DDP: shard data along batch
   if DDP > 0: x, y = [t.shard_(GPUS, axis=0) for t in (x,y)] 
   return x, y
 
 #-- model setup ----------------------------------------------------------------
-# derive vocab size from dataset
-_meta_path = os.path.join(_data_dir, 'meta.pkl')
-_meta_vocab_size = None
-if os.path.exists(_meta_path):
-  with open(_meta_path, 'rb') as f:
-    meta = pickle.load(f)
-  _meta_vocab_size = meta['vocab_size']
-  print(f"found vocab_size = {_meta_vocab_size} (inside {_meta_path})")
-# start with model_args from command line
+
+_, _, _metadata = state.safe_load_metadata(_data_fn)
+_vocab_size = _metadata.get("vocab_size")
+_vocab_size = _vocab_size if _vocab_size is not None else 50304
+_itos       = _metadata.get("itos")
+_stoi       = _metadata.get("stoi")
+
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, seqlen=seqlen,
-                       bias=bias, vocab_size=None, dropout=dropout) 
-if _meta_vocab_size is None: print("defaulting to vocab size 50304")
-model_args["vocab_size"] = _meta_vocab_size if _meta_vocab_size is not None else 50304
+                       bias=bias, vocab_size=_vocab_size, dropout=dropout) 
 model = GPT(GPTConfig(**model_args))
-# clone models to devices
+
+# DDP: shard model along devices
 if DDP > 0: {k: x.to_(GPUS) for k, x in nn.state.get_state_dict(model).items()}
 
 #-- train utils ---------------------------------------------------------------

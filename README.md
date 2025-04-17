@@ -13,7 +13,8 @@ Installation
 git clone https://github.com/spikedoanz/tinyGPT
 cd tinyGPT
 uv venv .venv
-uv pip install tinygrad numpy requests
+uv pip install "git+https://github.com/tinygrad/tinygrad"
+uv pip install numpy requests
 ```
 
 Dataset prep
@@ -43,10 +44,6 @@ BS=32 python train.py
 and every other variable, just check out train.py!
 
 ---
-
-# todo
-
-- fineweb
 
 # crackpot
 

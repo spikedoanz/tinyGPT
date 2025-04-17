@@ -27,7 +27,7 @@ eval_interval   = getenv("EVAL_INTERVAL", chkpt_interval)
 eval_iters      = getenv("EVAL_ITERS", 2)
 # data
 dataset         = getenv("DATASET", "shakespeare_char")
-batch_size      = getenv("BS", 64)
+batch_size      = getenv("BS", 128)
 seqlen          = getenv("SEQLEN", 256)
 # model
 n_layer         = getenv("N_LAYER", 6)
@@ -60,7 +60,7 @@ def get_batch(split):
   binary = "train.bin" if split == "train" else "val.bin"
   data = np.memmap(os.path.join(_data_dir, binary), dtype=np.uint16, mode='r')
   ix = Tensor.randint(batch_size, high=len(data)-seqlen).tolist()
-  x = Tensor([data[i:i+seqlen] for i in ix])
+  x = Tensor([data[i:i+seqlen] for i in ix], dtype=dtypes.int64)
   y = Tensor([data[i+1:i+1+seqlen] for i in ix], dtype=dtypes.int64)
   # DDP: shard data along batch
   if DDP > 0: x, y = [t.shard_(GPUS, axis=0) for t in (x,y)] 

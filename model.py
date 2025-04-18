@@ -1,5 +1,6 @@
 from typing import Optional
 from dataclasses import dataclass
+import math
 
 from tinygrad import Tensor, nn, dtypes
 
@@ -55,6 +56,10 @@ class CausalSelfAttention:
     drahs = lambda x: x.rearrange('b h s hs -> b s (h hs)', h=H, hs=HS)
     xq, xk, xv = [shard(x_) for x_ in (self.wq(x), self.wk(x), self.wv(x))]
     att = xq.scaled_dot_product_attention(xk, xv, mask)
+    qk = Tensor.einsum("b h s d, b h t d -> b h s t", xq, xk) 
+    qk = qk / math.sqrt(xq.shape[-1])
+    if mask is not None: qk = qk + mask
+    att = qk.softmax(-1).dropout(self.dropout) @ xv
     att = att.dropout(self.dropout)
     out = self.wo(drahs(att)).dropout(self.dropout)
     return out
